@@ -1,0 +1,111 @@
+clc;close;
+clearvars -except Cluster Data Select nbasin fieldn FCM clustn num fieldname imain0 CallTimes DATA WindowSize length_day fieldnames Cluster_Veri
+
+%---generate the date
+    Date.dates=datevec(datenum(['15-Jan-',num2str(1982)]):datenum(['31-Dec-',num2str(2000)]));
+    Date.year=Date.dates(:,1);
+    Date.Uyear=unique(Date.year);
+    Date.month=Date.dates(:,1)*100+Date.dates(:,2);  
+    Date.Umonth=unique(Date.month);
+    Date.halfmonth=zeros(length(Date.dates),1);
+    for i=1:length(Date.Umonth)
+        ind=find(Date.month==Date.Umonth(i));
+        Date.halfmonth(ind(1:round(length(ind)./2)))=Date.dates(ind(1:round(length(ind)./2)),1).*1000+Date.dates(ind(1:round(length(ind)./2)),2).*10+1;  
+        Date.halfmonth(ind(round(length(ind)./2)+1:end))=Date.dates(ind(round(length(ind)./2)+1:end),1).*1000+Date.dates(ind(round(length(ind)./2)+1:end),2).*10+2;
+        clear i ind
+    end
+    Date.Uhalfmonth=unique(Date.halfmonth);
+    Date.day=Date.dates(:,1).*10000+Date.dates(:,2).*100+Date.dates(:,3);
+    Date.Uday=unique(Date.day);    
+
+%---Index of  halfmonth, month and year
+    Timescales={'day','halfmonth','month','year'};
+    Elements={'P','PE','Q'};
+    for i=1:length(Timescales)    
+        name0=['Index.',Timescales{i}];
+        name1=['Date.',Timescales{i}];
+        name=['Date.U',Timescales{i}];
+        
+        eval(['Index.',Timescales{i},'=cell(length(',name,'),1);']);    
+        for j=eval(['1:length(',name,')'])
+            eval([name0,'{j}=find(',name1,'==',name,'(j));']);
+            clear j
+        end
+        clear i name
+    end
+    clear name0 name1 Timescales Elements j
+
+    %---Generating input
+    DATA = [Data.(num).day.P Data.(num).day.PE Data.(num).day.Q Data.(num).day.avgT];
+    DATA = cell2mat(DATA);
+    DATA = DATA((WindowSize):(length_day),:);
+    input.data.precip   = DATA(:,1);               % Mean areal precipitation (mm)
+    input.data.evap     = DATA(:,2);               % Climatic potential evaporation (mm)
+    input.data.flow     = DATA(:,3);               % Streamflow discharge (mm)
+    input.data.avgTemp  = DATA(:,4);               % Daily average temprature (℃)
+    input.date.nDays    = length(input.data.flow);
+    input.date.year     = Date.year(1:input.date.nDays);
+    input.date.day      = Date.day(1:input.date.nDays);   
+%     save input input
+   
+%---Data for calibration
+    global hymod
+    hymod.data.precip   = DATA(:,1);               % Mean areal precipitation (mm)
+    hymod.data.evap     = DATA(:,2);               % Climatic potential evaporation (mm)
+    hymod.data.flow     = DATA(:,3);               % Streamflow discharge (mm)
+    hymod.data.avgTemp  = DATA(:,4);               % Daily average temprature (℃)
+    hymod.date.nDays    = length(hymod.data.flow);
+    hymod.date.year     = Date.year(1:hymod.date.nDays);
+    hymod.date.day      = Date.day(1:hymod.date.nDays);
+    clear input DATA
+
+    %---Sub-period
+    FCM.n_clusters = size(Cluster.(num).centers,1);
+    %---ID set for whole period
+    ID=cell(FCM.n_clusters+1,1);
+    % Whole period
+    ID{1,1}= (1:length(Cluster.(num).data))';
+    % Sub_period
+    % Calibration period
+    for i=1:FCM.n_clusters
+        fieldName = ['index' num2str(i)];
+        ID{(i+1)} = Cluster.(num).(fieldName)';
+    end
+    % Verification period
+    ID_V=cell(FCM.n_clusters+1,1);
+    ID_V{1,1}= (1:length(Cluster_Veri.(num).data))';
+    for i=1:FCM.n_clusters
+        fieldName = ['index' num2str(i)];
+        ID_V{(i+1)} = Cluster_Veri.(num).(fieldName)';
+    end
+    % Add ID of verification period to the end of ID
+    for i = 1:length(ID_V)
+        ID_V{i} = ID_V{i} + length_day-WindowSize+1;
+    end
+
+    % 将 ID_V 添加至 ID 中对应位置的后面
+    for i = 1:length(ID)
+        ID{i} = [ID{i}; ID_V{i}];
+    end
+    hymod.date.ID=ID;
+    clear i halfmonth0 halfmonth1 halfmonth1 halfmonth2 num_cali num_veri fieldName ID_V
+
+    %---ID set for calibration
+    ID_cali = cell(size(ID));
+    for i = 1:numel(ID)
+        ID_cali{i} = ID{i}(ID{i} > (365-WindowSize+1) & ID{i} <= length_day-WindowSize+1);
+    end
+    ID_cali{i} = ID_cali{i}-WindowSize+1;
+    hymod.date.ID_cali=ID_cali;
+    clear i ID_cali
+
+    %---ID set for verification
+    ID_veri = cell(size(ID));
+    for i = 1:numel(ID)
+        ID_veri{i} = ID{i}( ID{i} > length_day-WindowSize+1);
+    end
+    hymod.date.ID_veri=ID_veri;
+
+
+    clear i ID_veri
+    clear i ID
